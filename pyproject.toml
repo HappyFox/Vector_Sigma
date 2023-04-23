@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "vector-sigma"
+version = "0.1.0"
+description = "A signal messenger to chat bot AI gateway."
+authors = ["Keith Baston <keith.baston@gmail.com>"]
+readme = "README.md"
+packages = [{include = "vector_sigma"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+aiosqlite3 = "^0.3.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+vector-sigma = 'vector_sigma:run'
