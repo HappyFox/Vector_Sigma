@@ -2,6 +2,7 @@ import logging
 import sys
 
 
+import aioconsole
 import aiosqlite3
 
 from pathlib import Path
@@ -18,13 +19,20 @@ def get_db():
 async def init():
     async with get_db() as db:
         logging.info("Initial DB table creation")
-        await db.execute("CREATE TABLE IF NOT EXISTS settings (phone_num TEXT);")
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS registered_numbers (phone_num TEXT);"
+        )
 
-        async with db.execute("SELECT COUNT(*) FROM settings") as cur:
+        count = None
+        async with db.execute("SELECT COUNT(*) FROM registered_numbers") as cur:
             (count,) = await cur.fetchone()
+        await aioconsole.aprint(count)
+        if not count:
+            phone_num = await aioconsole.ainput(
+                "Enter the phone number you have registered with signal-cli : "
+            )
 
-            if not count:
-                print(
-                    "No phone number associated to a character. Run vector-sigma-add to add one."
-                )
-                sys.exit(1)
+            await db.execute(
+                "INSERT INTO registered_numbers(phone_num) VALUES (?)", (phone_num,)
+            )
+            await db.commit()

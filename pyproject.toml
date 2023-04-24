@@ -9,6 +9,7 @@ packages = [{include = "vector_sigma"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 aiosqlite3 = "^0.3.0"
+aioconsole = "^0.6.1"
 
 
 [build-system]
