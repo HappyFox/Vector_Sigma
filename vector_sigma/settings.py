@@ -20,19 +20,34 @@ async def init():
     async with get_db() as db:
         logging.info("Initial DB table creation")
         await db.execute(
-            "CREATE TABLE IF NOT EXISTS registered_numbers (phone_num TEXT);"
+            "CREATE TABLE IF NOT EXISTS registered_lines (account_num TEXT, user_num TEXT);"
         )
 
         count = None
-        async with db.execute("SELECT COUNT(*) FROM registered_numbers") as cur:
+        async with db.execute("SELECT COUNT(*) FROM registered_lines") as cur:
             (count,) = await cur.fetchone()
         await aioconsole.aprint(count)
         if not count:
-            phone_num = await aioconsole.ainput(
+            account_num = await aioconsole.ainput(
                 "Enter the phone number you have registered with signal-cli : "
             )
 
-            await db.execute(
-                "INSERT INTO registered_numbers(phone_num) VALUES (?)", (phone_num,)
+            user_num = await aioconsole.ainput(
+                "Enter the number you will message the bots from :"
             )
+
+            await db.execute(
+                "INSERT INTO registered_lines(account_num, user_num ) VALUES (?, ?)",
+                (account_num, user_num),
+            )
+
             await db.commit()
+
+
+async def get_signal_lines():
+    async with get_db() as db:
+        async with db.execute(
+            "SELECT account_num, user_num FROM registered_lines"
+        ) as cur:
+            numbers = await cur.fetchall()
+    return numbers
