@@ -1,54 +1,130 @@
 import asyncio
+import functools
 import json
 import logging
 import pprint
+import dataclasses
+
 
 import vector_sigma.settings
 
 pp = pprint.PrettyPrinter(indent=4)
 
-_proc = None
-
-_running_task = None
-_listening_task = None
-_registered_listeners = []
-
-_stop_event = asyncio.Event()
+_running_proxies = {}
 
 
-async def init():
-    global _proc
-    global _listening_task
-    global _stop_task
+class BadJsonCall(Exception):
+    pass
 
-    lines = await vector_sigma.settings.get_signal_lines()
-    for account_num, user_num in lines:
-        _proc = await asyncio.create_subprocess_exec(
+
+async def get_num_proxy(account_num):
+    if account_num in _running_proxies:
+        return _running_proxies[account_num]
+
+    proxy = SignalProxy(account_num)
+    await proxy.start()
+
+    _running_proxies[account_num] = proxy
+
+    return proxy
+
+
+class SignalProxy:
+    @dataclasses.dataclass
+    class CallRecord:
+        completed: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+        result: dict = None
+        error: dict = None
+
+    def __init__(self, account_num):
+        self._account_num = account_num
+        self._proc = None
+        self._listening_task = None
+
+        self._registered_receivers = {}
+        self._in_progress_calls = {}
+
+        self._current_id = 0
+
+    async def start(self):
+        self._proc = await asyncio.create_subprocess_exec(
             "signal-cli",
             "-u",
-            account_num,
+            self._account_num,
             "jsonRpc",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
-        _listening_task = asyncio.create_task(_listening_fn(_proc.stdout, user_num))
+        self._listening_task = asyncio.create_task(self._listen_fn())
 
+    async def stop(self):
+        self._proc.terminate()
+        await self._listening_task
 
-async def _listening_fn(stdout, user_num):
-    msg_bytes = await stdout.readline()
-    while msg_bytes != b"":
-        breakpoint()
-        msg_json = json.loads(msg_bytes)
-        pp.pprint(msg_json)
+    async def _listen_fn(self):
+        msg_bytes = await self._proc.stdout.readline()
+        while msg_bytes != b"":
+            msg_json = json.loads(msg_bytes)
+            pp.pprint(msg_json)
 
-        if msg_json["method"] == "receive":
-            from_account = msg_json["params"]["account"]
-            envelope = msg_json["params"]["envelope"]
-            if from_account == user_num:
+            if "id" in msg_json:
+                call_record = self._in_progress_calls[msg_json["id"]]
+
+                if "result" in msg_json:
+                    call_record.result = msg_json["result"]
+                elif "error" in msg_json:
+                    call_record.error = msg_json["error"]
+
+                call_record.completed.set()
+
+                del self._in_progress_calls[msg_json["id"]]
+
+            elif msg_json["method"] == "receive":
+                params = msg_json["params"]
+                to_account = params["account"]
+                envelope = params["envelope"]
                 print(f"From number:{envelope['source']}")
-        msg_bytes = await stdout.readline()
-        breakpoint()
+                source_num = envelope["sourceNumber"]
+                if source_num in self._registered_receivers:
+                    try:
+                        self._registered_receivers[source_num].put_nowait(envelope)
+                    except asyncio.QueueFull:
+                        pass  # add logging.
 
-    print("connection lost.")
+            msg_bytes = await self._proc.stdout.readline()
+
+    def register_for_msg(self, number, queue):
+        self._registered_receivers[number] = queue
+
+    def __getattr__(self, name):
+        return functools.partial(self._delegate_coroutine, name)
+
+    def _get_id(self):
+        self._current_id = (self._current_id + 1) % 2**32
+        return str(self._current_id)
+
+    async def _delegate_coroutine(self, method, **kwargs):
+        id_ = self._get_id()
+        call_record = SignalProxy.CallRecord()
+        print(call_record)
+        self._in_progress_calls[id_] = call_record
+
+        request = {"jsonrpc": "2.0", "method": method, "id": str(id_)}
+
+        if kwargs:
+            request["params"] = kwargs
+
+        json_str = json.dumps(request) + "\n"
+        json_bytes = json_str.encode("UTF-8")
+
+        self._proc.stdin.write(json_bytes)
+        await self._proc.stdin.drain()
+
+        await call_record.completed.wait()
+
+        if call_record.error:
+            raise BadJsonCall(call_record.error["message"])
+
+        return call_record.result["results"]
