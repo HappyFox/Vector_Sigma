@@ -17,6 +17,8 @@ def get_db():
 
 
 async def init():
+    logging.debug("Starting settings")
+
     async with get_db() as db:
         logging.info("Initial DB table creation")
         await db.execute(
@@ -26,7 +28,7 @@ async def init():
         count = None
         async with db.execute("SELECT COUNT(*) FROM registered_lines") as cur:
             (count,) = await cur.fetchone()
-        await aioconsole.aprint(count)
+        # await aioconsole.aprint(count)
         if not count:
             account_num = await aioconsole.ainput(
                 "Enter the phone number you have registered with signal-cli : "
