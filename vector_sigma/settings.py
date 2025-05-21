@@ -1,11 +1,9 @@
 import logging
 import sys
-
+from pathlib import Path
 
 import aioconsole
-import aiosqlite3
-
-from pathlib import Path
+import aiosqlite
 
 
 def get_db_path():
@@ -13,7 +11,7 @@ def get_db_path():
 
 
 def get_db():
-    return aiosqlite3.connect(get_db_path())
+    return aiosqlite.connect(get_db_path())
 
 
 async def init():
